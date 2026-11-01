@@ -1,0 +1,31 @@
+{
+  "bond": {
+    "name": "Corporate Bond 2028",
+    "symbol": "CB28",
+    "faceValue": "1000000000",
+    "couponRateBps": 800,
+    "maturityMonths": 12,
+    "seedMintAmount": "1000"
+  },
+  "oracles": {
+    "reserveDecimals": 6,
+    "initialReserves": "1000000000000",
+    "yieldDecimals": 2,
+    "initialYield": 800
+  },
+  "guard": {
+    "minRatioBps": 10000,
+    "maxStaleness": 86400
+  },
+  "chainlink": {
+    "sepolia": {
+      "ethUsdFeed": "0x694AA1769357215DE4FAC081bf1f309aDC325306"
+    },
+    "localhost": {
+      "initialEthPrice": 300000000000,
+      "decimals": 8,
+      "description": "ETH/USD Mock"
+    }
+  }
+}
+

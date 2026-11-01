@@ -1,0 +1,10 @@
+node_modules
+.env
+backend/.env
+backend/uploads
+backend/data
+cache
+artifacts
+coverage
+coverage.json
+typechain-types

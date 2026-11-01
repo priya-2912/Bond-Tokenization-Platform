@@ -1,0 +1,31 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.18.0
+2 info using node@v24.18.0
+3 silly config load:file:C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\PRIYA\Downloads\Blockchain\Blockchain\bond-platform\.npmrc
+5 silly config load:file:C:\Users\PRIYA\.npmrc
+6 verbose config error loading user config Error: EPERM: operation not permitted, open 'C:\Users\PRIYA\.npmrc'
+6 verbose config     at async open (node:internal/fs/promises:640:25)
+6 verbose config     at async readFile (node:internal/fs/promises:1290:14)
+6 verbose config     at async #loadFile (C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\node_modules\@npmcli\config\lib\index.js:646:5)
+6 verbose config     at async Config.load (C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\node_modules\@npmcli\config\lib\index.js:260:5)
+6 verbose config     at async #load (C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\lib\npm.js:95:5)
+6 verbose config     at async Npm.load (C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\lib\npm.js:77:14)
+6 verbose config     at async module.exports (C:\Users\PRIYA\AppData\Roaming\npm\node_modules\npm\lib\cli\entry.js:36:37) {
+6 verbose config   errno: -4048,
+6 verbose config   code: 'EPERM',
+6 verbose config   syscall: 'open',
+6 verbose config   path: 'C:\\Users\\PRIYA\\.npmrc'
+6 verbose config }
+7 silly config load:file:C:\Users\PRIYA\AppData\Roaming\npm\etc\npmrc
+8 verbose title npm exec hardhat test --no-compile
+9 verbose argv "exec" "--" "hardhat" "test" "--no-compile"
+10 verbose logfile logs-max:10 dir:C:\Users\PRIYA\Downloads\Blockchain\Blockchain\bond-platform\.cache\npm-cache\_logs\2026-11-01T14_34_31_541Z-
+11 verbose logfile C:\Users\PRIYA\Downloads\Blockchain\Blockchain\bond-platform\.cache\npm-cache\_logs\2026-11-01T14_34_31_541Z-debug-0.log
+12 silly logfile done cleaning log files
+13 verbose cwd C:\Users\PRIYA\Downloads\Blockchain\Blockchain\bond-platform
+14 verbose os Windows_NT 10.0.26200
+15 verbose node v24.18.0
+16 verbose npm  v11.18.0
+17 verbose exit 0
+18 info ok
