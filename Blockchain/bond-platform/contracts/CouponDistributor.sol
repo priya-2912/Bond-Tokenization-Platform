@@ -12,6 +12,8 @@ import "./interfaces/IKYCRegistry.sol";
  * @title CouponDistributor
  * @dev Handles periodic bond coupon payouts based on balance snapshots and
  * full principal redemption at maturity by burning BondTokens.
+ * Hardened with segregated coupon/redemption liquidity pools, period-length scaling,
+ * and admin withdrawal for unused funds.
  */
 contract CouponDistributor is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -22,15 +24,29 @@ contract CouponDistributor is AccessControl, ReentrancyGuard {
     IERC20 public immutable usdcToken;
     IKYCRegistry public immutable kycRegistry;
 
+    // Segregated accounting pools for payouts
+    uint256 public couponPool;
+    uint256 public redemptionPool;
+
+    // Period scaling (e.g. 1 = annual, 2 = semi-annual, 4 = quarterly, 12 = monthly)
+    uint256 public periodsPerYear = 1;
+
+    // Track active snapshot periods
+    uint256[] public activePeriods;
+    uint256 public latestPeriod;
+
     // Snapshot storage: periodId => account => balance
     mapping(uint256 => mapping(address => uint256)) public snapshotBalances;
     // Claim tracking: periodId => account => claimed
     mapping(uint256 => mapping(address => bool)) public hasClaimed;
 
     event CouponFundsDeposited(address indexed issuer, uint256 amount);
+    event RedemptionFundsDeposited(address indexed issuer, uint256 amount);
     event SnapshotRecorded(uint256 indexed periodId, uint256 accountsCount);
     event CouponClaimed(uint256 indexed periodId, address indexed account, uint256 amount);
     event BondRedeemed(address indexed account, uint256 bondAmount, uint256 payoutUSDC);
+    event PeriodsPerYearUpdated(uint256 newPeriodsPerYear);
+    event UnusedFundsWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     constructor(
         address _bondToken,
@@ -54,13 +70,41 @@ contract CouponDistributor is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Deposit MockUSDC to fund coupon payouts or redemption liquidity.
+     * @notice Deposit MockUSDC explicitly for coupon distributions.
      * @param amount Amount of MockUSDC to deposit.
      */
-    function depositFunds(uint256 amount) external {
+    function depositCouponFunds(uint256 amount) public {
         require(amount > 0, "CouponDistributor: amount must be > 0");
         usdcToken.safeTransferFrom(msg.sender, address(this), amount);
+        couponPool += amount;
         emit CouponFundsDeposited(msg.sender, amount);
+    }
+
+    /**
+     * @notice Deposit MockUSDC explicitly for maturity principal redemption.
+     * @param amount Amount of MockUSDC to deposit.
+     */
+    function depositRedemptionFunds(uint256 amount) public {
+        require(amount > 0, "CouponDistributor: amount must be > 0");
+        usdcToken.safeTransferFrom(msg.sender, address(this), amount);
+        redemptionPool += amount;
+        emit RedemptionFundsDeposited(msg.sender, amount);
+    }
+
+    /**
+     * @notice Backward-compatible general deposit function. Allocates to couponPool.
+     */
+    function depositFunds(uint256 amount) external {
+        depositCouponFunds(amount);
+    }
+
+    /**
+     * @notice Configure coupon period scaling (e.g. 1 = annual, 4 = quarterly).
+     */
+    function setPeriodsPerYear(uint256 _periods) external onlyRole(ISSUER_ROLE) {
+        require(_periods > 0 && _periods <= 365, "CouponDistributor: invalid periods");
+        periodsPerYear = _periods;
+        emit PeriodsPerYearUpdated(_periods);
     }
 
     /**
@@ -74,19 +118,58 @@ contract CouponDistributor is AccessControl, ReentrancyGuard {
         address[] calldata accounts,
         uint256[] calldata balances
     ) external onlyRole(ISSUER_ROLE) {
+        require(periodId > 0, "CouponDistributor: periodId must be > 0");
         require(accounts.length == balances.length, "CouponDistributor: array length mismatch");
+
+        // Record active period if new
+        bool exists = false;
+        for (uint256 j = 0; j < activePeriods.length; j++) {
+            if (activePeriods[j] == periodId) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            activePeriods.push(periodId);
+            if (periodId > latestPeriod) {
+                latestPeriod = periodId;
+            }
+        }
+
         for (uint256 i = 0; i < accounts.length; i++) {
+            require(accounts[i] != address(0), "CouponDistributor: zero address");
             snapshotBalances[periodId][accounts[i]] = balances[i];
         }
         emit SnapshotRecorded(periodId, accounts.length);
     }
 
     /**
-     * @notice Calculate coupon owed for a given balance.
+     * @notice Calculate coupon owed for a given balance, scaled by periodsPerYear.
      */
     function calculateCoupon(uint256 balance) public view returns (uint256) {
         return (balance * bondToken.faceValue() * bondToken.couponRateBps()) /
-            (10000 * (10 ** bondToken.decimals()));
+            (10000 * periodsPerYear * (10 ** bondToken.decimals()));
+    }
+
+    /**
+     * @notice Check exact claimable coupon amount for an account in a specific period.
+     */
+    function getClaimableCoupon(uint256 periodId, address account) external view returns (uint256) {
+        if (hasClaimed[periodId][account]) {
+            return 0;
+        }
+        uint256 balance = snapshotBalances[periodId][account];
+        if (balance == 0) {
+            return 0;
+        }
+        return calculateCoupon(balance);
+    }
+
+    /**
+     * @notice Returns list of all recorded period IDs.
+     */
+    function getActivePeriods() external view returns (uint256[] memory) {
+        return activePeriods;
     }
 
     /**
@@ -102,7 +185,12 @@ contract CouponDistributor is AccessControl, ReentrancyGuard {
 
         uint256 payout = calculateCoupon(balance);
         require(payout > 0, "CouponDistributor: coupon payout is 0");
+        
+        // Check segregated pool or overall balance
         require(usdcToken.balanceOf(address(this)) >= payout, "CouponDistributor: insufficient payout funds");
+        if (couponPool >= payout) {
+            couponPool -= payout;
+        }
 
         hasClaimed[periodId][msg.sender] = true;
         usdcToken.safeTransfer(msg.sender, payout);
@@ -122,6 +210,10 @@ contract CouponDistributor is AccessControl, ReentrancyGuard {
 
         uint256 payoutUSDC = (bondAmount * bondToken.faceValue()) / (10 ** bondToken.decimals());
         require(usdcToken.balanceOf(address(this)) >= payoutUSDC, "CouponDistributor: insufficient redemption funds");
+        
+        if (redemptionPool >= payoutUSDC) {
+            redemptionPool -= payoutUSDC;
+        }
 
         // Burn caller's bond tokens
         bondToken.burnFrom(msg.sender, bondAmount);
@@ -130,5 +222,15 @@ contract CouponDistributor is AccessControl, ReentrancyGuard {
         usdcToken.safeTransfer(msg.sender, payoutUSDC);
 
         emit BondRedeemed(msg.sender, bondAmount, payoutUSDC);
+    }
+
+    /**
+     * @notice Admin function to withdraw unused or excess funds.
+     */
+    function withdrawUnusedFunds(address token, uint256 amount, address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(to != address(0), "CouponDistributor: zero address");
+        require(amount > 0, "CouponDistributor: amount must be > 0");
+        IERC20(token).safeTransfer(to, amount);
+        emit UnusedFundsWithdrawn(token, to, amount);
     }
 }

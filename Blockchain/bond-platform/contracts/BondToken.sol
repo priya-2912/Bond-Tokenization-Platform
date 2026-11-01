@@ -11,11 +11,14 @@ import "./interfaces/IReserveOracle.sol";
  * @title BondToken
  * @dev KYC-gated ERC-20 representing a tokenized bond with metadata, pause controls,
  * proof-of-reserve ratio guard, and compliance forced transfer capabilities.
+ * Hardened with role segregation (REDEMPTION_ROLE), pause-exempt compliance recovery,
+ * and strict oracle sanity checks.
  */
 contract BondToken is ERC20, ERC20Pausable, AccessControl {
     bytes32 public constant ISSUER_ROLE = keccak256("ISSUER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant COMPLIANCE_ROLE = keccak256("COMPLIANCE_ROLE");
+    bytes32 public constant REDEMPTION_ROLE = keccak256("REDEMPTION_ROLE");
 
     // Bond terms & metadata
     uint256 public immutable faceValue;       // In MockUSDC units (e.g., 1000 * 10^6 for $1,000)
@@ -24,6 +27,8 @@ contract BondToken is ERC20, ERC20Pausable, AccessControl {
 
     IKYCRegistry public kycRegistry;
     IReserveOracle public reserveOracle;
+
+    bool private _bypassingPause;
 
     // Events
     event KYCRegistryUpdated(address indexed newRegistry);
@@ -79,6 +84,7 @@ contract BondToken is ERC20, ERC20Pausable, AccessControl {
      * @notice Set or update the Proof of Reserve oracle contract.
      */
     function setReserveOracle(address _oracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_oracle != address(0), "BondToken: invalid oracle address");
         reserveOracle = IReserveOracle(_oracle);
         emit ReserveOracleUpdated(_oracle);
     }
@@ -133,10 +139,10 @@ contract BondToken is ERC20, ERC20Pausable, AccessControl {
     }
 
     /**
-     * @notice Burn tokens from an account. Allowed for account holder or ISSUER_ROLE (e.g., redemption module).
+     * @notice Burn tokens from an account. Allowed for account holder, ISSUER_ROLE, or REDEMPTION_ROLE.
      */
     function burnFrom(address account, uint256 amount) external {
-        if (msg.sender != account && !hasRole(ISSUER_ROLE, msg.sender)) {
+        if (msg.sender != account && !hasRole(ISSUER_ROLE, msg.sender) && !hasRole(REDEMPTION_ROLE, msg.sender)) {
             _spendAllowance(account, msg.sender, amount);
         }
         _burn(account, amount);
@@ -144,12 +150,14 @@ contract BondToken is ERC20, ERC20Pausable, AccessControl {
 
     /**
      * @notice Emergency force transfer by compliance role.
-     * Bypasses allowance but maintains KYC whitelist requirement on recipient.
+     * Bypasses allowance and pause state, but maintains KYC whitelist requirement on recipient.
      */
     function forceTransfer(address from, address to, uint256 amount) external onlyRole(COMPLIANCE_ROLE) {
         require(from != address(0), "BondToken: cannot transfer from zero address");
         require(to != address(0), "BondToken: cannot transfer to zero address");
+        _bypassingPause = true;
         _update(from, to, amount);
+        _bypassingPause = false;
         emit ForceTransferExecuted(from, to, amount, msg.sender);
     }
 
@@ -175,7 +183,11 @@ contract BondToken is ERC20, ERC20Pausable, AccessControl {
         virtual
         override(ERC20, ERC20Pausable)
     {
-        super._update(from, to, value);
+        if (_bypassingPause) {
+            ERC20._update(from, to, value);
+        } else {
+            super._update(from, to, value);
+        }
 
         if (address(kycRegistry) != address(0) && value > 0) {
             if (from == address(0)) {

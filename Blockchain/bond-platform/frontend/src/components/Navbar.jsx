@@ -1,5 +1,5 @@
 import React from "react";
-import { ShieldCheck, ShieldAlert, Wallet, Globe, Copy, Check } from "lucide-react";
+import { ShieldCheck, ShieldAlert, Wallet, Globe, Copy, Check, UserCheck, Shield } from "lucide-react";
 
 export default function Navbar({
   account,
@@ -7,6 +7,7 @@ export default function Navbar({
   setNetwork,
   connectWallet,
   isKycVerified,
+  userRoles,
   activeTab,
   setActiveTab
 }) {
@@ -18,6 +19,16 @@ export default function Navbar({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const getRoleLabel = () => {
+    if (!userRoles) return null;
+    if (userRoles.isAdmin) return { label: "Admin", class: "badge-blue" };
+    if (userRoles.isCompliance) return { label: "Compliance", class: "badge-emerald" };
+    if (userRoles.isIssuer) return { label: "Issuer", class: "badge-amber" };
+    return { label: "Investor", class: "badge" };
+  };
+
+  const roleInfo = getRoleLabel();
 
   return (
     <header className="nav-header">
@@ -81,6 +92,13 @@ export default function Navbar({
               <option value="sepolia" style={{ background: "#151d2c" }}>Sepolia Testnet</option>
             </select>
           </div>
+
+          {/* Role Badge (if connected) */}
+          {account && roleInfo && (
+            <span className={`badge ${roleInfo.class}`} style={{ textTransform: "uppercase", fontSize: "0.68rem" }}>
+              {roleInfo.label}
+            </span>
+          )}
 
           {/* KYC Status Badge */}
           {account && (

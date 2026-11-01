@@ -10,7 +10,11 @@ import {
   TrendingUp,
   RefreshCw,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  History,
+  AlertOctagon,
+  CheckCircle2,
+  Filter
 } from "lucide-react";
 
 export default function Transparency({ provider, network, refreshTrigger }) {
@@ -22,11 +26,14 @@ export default function Transparency({ provider, network, refreshTrigger }) {
     oracleUpdated: null,
     ethPrice: "0",
   });
+  const [events, setEvents] = useState([]);
+  const [selectedFilter, setSelectedFilter] = useState("all");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (provider) {
       loadTransparencyData();
+      loadEventHistory();
     }
   }, [provider, network, refreshTrigger]);
 
@@ -60,9 +67,94 @@ export default function Transparency({ provider, network, refreshTrigger }) {
     }
   };
 
+  const loadEventHistory = async () => {
+    try {
+      // 1. Try fetching from backend indexer first
+      let loadedEvents = [];
+      try {
+        const res = await fetch("http://localhost:4000/api/events?limit=40");
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            loadedEvents = data.map((e) => ({
+              contract: e.contract,
+              type: e.type,
+              blockNumber: e.block_number,
+              txHash: e.tx_hash,
+              args: typeof e.args === "string" ? JSON.parse(e.args) : e.args,
+              timestamp: e.created_at,
+            }));
+          }
+        }
+      } catch {
+        // Backend not running, proceed to direct RPC querying
+      }
+
+      // 2. Query ReserveGuard events directly on-chain if backend returned nothing or for freshness
+      if (loadedEvents.length === 0 && provider) {
+        try {
+          const reserveGuard = getContract("ReserveGuard", provider, network);
+          const currentBlock = await provider.getBlockNumber();
+          const fromBlock = Math.max(0, currentBlock - 2000);
+
+          const [alerts, restores] = await Promise.all([
+            reserveGuard.queryFilter(reserveGuard.filters.ReserveAlert(), fromBlock, "latest").catch(() => []),
+            reserveGuard.queryFilter(reserveGuard.filters.ReserveRestored(), fromBlock, "latest").catch(() => []),
+          ]);
+
+          const onChainLogs = [];
+          alerts.forEach((log) => {
+            onChainLogs.push({
+              contract: "ReserveGuard",
+              type: "ReserveAlert",
+              blockNumber: log.blockNumber,
+              txHash: log.transactionHash,
+              args: {
+                currentRatioBps: log.args[0]?.toString(),
+                requiredReserves: log.args[1]?.toString(),
+                actualReserves: log.args[2]?.toString(),
+              },
+              timestamp: new Date().toLocaleTimeString(),
+            });
+          });
+
+          restores.forEach((log) => {
+            onChainLogs.push({
+              contract: "ReserveGuard",
+              type: "ReserveRestored",
+              blockNumber: log.blockNumber,
+              txHash: log.transactionHash,
+              args: {
+                currentRatioBps: log.args[0]?.toString(),
+              },
+              timestamp: new Date().toLocaleTimeString(),
+            });
+          });
+
+          loadedEvents = onChainLogs.reverse();
+        } catch (chainErr) {
+          console.warn("Direct event query warning:", chainErr);
+        }
+      }
+
+      setEvents(loadedEvents);
+    } catch (err) {
+      console.error("Error loading events:", err);
+    }
+  };
+
   const addresses = getAddresses(network);
   const isSepolia = network === "sepolia";
   const etherscanBase = "https://sepolia.etherscan.io/address/";
+  const etherscanTxBase = "https://sepolia.etherscan.io/tx/";
+
+  const filteredEvents = events.filter((e) => {
+    if (selectedFilter === "all") return true;
+    if (selectedFilter === "alerts") return e.type === "ReserveAlert";
+    if (selectedFilter === "restored") return e.type === "ReserveRestored";
+    if (selectedFilter === "market") return ["OrderCreated", "OrderFilled", "OrderCancelled"].includes(e.type);
+    return true;
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
@@ -82,7 +174,7 @@ export default function Transparency({ provider, network, refreshTrigger }) {
             </p>
           </div>
 
-          <button onClick={loadTransparencyData} className="btn-icon" title="Refresh audit metrics">
+          <button onClick={() => { loadTransparencyData(); loadEventHistory(); }} className="btn-icon" title="Refresh audit metrics">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
@@ -136,6 +228,141 @@ export default function Transparency({ provider, network, refreshTrigger }) {
           <div className="stat-sub">
             {isSepolia ? "Real Sepolia Feed" : "Local Mock Feed"}
           </div>
+        </div>
+      </div>
+
+      {/* On-Chain Reserve Audit & Event Log History */}
+      <div className="card">
+        <div className="card-header" style={{ flexWrap: "wrap", gap: "0.75rem" }}>
+          <div>
+            <h3 className="card-title">
+              <History size={18} color="#f59e0b" />
+              Proof of Reserve Circuit Breaker & Platform Event Log
+            </h3>
+            <p className="card-subtitle">
+              Persistent event monitoring powered by ReserveGuard and platform indexer.
+            </p>
+          </div>
+
+          {/* Event Filter Pills */}
+          <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+            <button
+              onClick={() => setSelectedFilter("all")}
+              className={`btn btn-sm ${selectedFilter === "all" ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontSize: "0.75rem", padding: "0.25rem 0.65rem" }}
+            >
+              All Events ({events.length})
+            </button>
+            <button
+              onClick={() => setSelectedFilter("alerts")}
+              className={`btn btn-sm ${selectedFilter === "alerts" ? "btn-rose" : "btn-secondary"}`}
+              style={{ fontSize: "0.75rem", padding: "0.25rem 0.65rem" }}
+            >
+              Reserve Alerts
+            </button>
+            <button
+              onClick={() => setSelectedFilter("restored")}
+              className={`btn btn-sm ${selectedFilter === "restored" ? "btn-emerald" : "btn-secondary"}`}
+              style={{ fontSize: "0.75rem", padding: "0.25rem 0.65rem" }}
+            >
+              Restorations
+            </button>
+            <button
+              onClick={() => setSelectedFilter("market")}
+              className={`btn btn-sm ${selectedFilter === "market" ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontSize: "0.75rem", padding: "0.25rem 0.65rem" }}
+            >
+              Marketplace
+            </button>
+          </div>
+        </div>
+
+        <div className="table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Event Type</th>
+                <th>Contract</th>
+                <th>Audit Details & Parameters</th>
+                <th>Block</th>
+                <th style={{ textAlign: "right" }}>Transaction</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredEvents.length === 0 ? (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                    No events recorded yet in the current indexer window. Trigger a reserve change or "Emit Reserve Check Event" in Admin Console.
+                  </td>
+                </tr>
+              ) : (
+                filteredEvents.map((evt, idx) => {
+                  const isAlert = evt.type === "ReserveAlert";
+                  const isRestored = evt.type === "ReserveRestored";
+                  const badgeClass = isAlert
+                    ? "badge-rose"
+                    : isRestored
+                    ? "badge-emerald"
+                    : "badge-blue";
+
+                  let detailText = "";
+                  if (isAlert) {
+                    const ratio = evt.args?.currentRatioBps ? (Number(evt.args.currentRatioBps) / 100).toFixed(1) : "N/A";
+                    const req = evt.args?.requiredReserves ? `$${(Number(evt.args.requiredReserves) / 1e6).toLocaleString()}` : "";
+                    const act = evt.args?.actualReserves ? `$${(Number(evt.args.actualReserves) / 1e6).toLocaleString()}` : "";
+                    detailText = `CRITICAL: Reserve dropped to ${ratio}% (${act} / ${req} USD required)`;
+                  } else if (isRestored) {
+                    const ratio = evt.args?.currentRatioBps ? (Number(evt.args.currentRatioBps) / 100).toFixed(1) : "N/A";
+                    detailText = `RESTORED: Reserves replenished to ${ratio}% coverage ratio`;
+                  } else {
+                    detailText = Object.entries(evt.args || {})
+                      .slice(0, 3)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join(", ");
+                  }
+
+                  return (
+                    <tr key={`${evt.txHash}-${idx}`}>
+                      <td>
+                        <span className={`badge ${badgeClass}`} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          {isAlert && <AlertOctagon size={11} />}
+                          {isRestored && <CheckCircle2 size={11} />}
+                          {evt.type}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+                        {evt.contract}
+                      </td>
+                      <td style={{ fontSize: "0.8rem", color: isAlert ? "var(--accent-rose)" : isRestored ? "var(--accent-emerald)" : "var(--text-secondary)" }}>
+                        {detailText}
+                      </td>
+                      <td className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                        #{evt.blockNumber}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {isSepolia && evt.txHash ? (
+                          <a
+                            href={`${etherscanTxBase}${evt.txHash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn btn-secondary btn-sm"
+                            style={{ gap: "0.25rem", padding: "0.2rem 0.5rem", fontSize: "0.7rem" }}
+                          >
+                            <span>{evt.txHash.slice(0, 6)}...</span>
+                            <ExternalLink size={10} />
+                          </a>
+                        ) : (
+                          <span className="font-mono" style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                            {evt.txHash ? `${evt.txHash.slice(0, 8)}...` : "Local"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

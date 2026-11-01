@@ -47,7 +47,8 @@ Proof of Reserve ratio enforced upon minting.
   - `DEFAULT_ADMIN_ROLE`: Manage oracles, pause roles, update KYC registry
   - `ISSUER_ROLE`: Mint new bonds, burn on redemption
   - `PAUSER_ROLE`: Pause / unpause transfers
-  - `COMPLIANCE_ROLE`: Execute emergency force transfers
+  - `COMPLIANCE_ROLE`: Execute emergency force transfers (operates even when contract is paused)
+  - `REDEMPTION_ROLE`: Authorizes redemption distributor module to burn bonds upon maturity without broad issuer mint permissions
 - **Key Terms**:
   - `faceValue`: Face value per bond in MockUSDC units (6 decimals, e.g. `1,000 * 10^6 = 1,000,000,000`)
   - `couponRateBps`: Coupon rate in basis points (e.g. `800 = 8.00%`)
@@ -124,6 +125,8 @@ Peer-to-peer secondary market order book for trading bonds against MockUSDC. Esc
   - `createSellOrder(uint256 bondAmount, uint256 priceInUSDC)` returns `(uint256 orderId)`: Deposits bonds into escrow. Seller must be KYC-verified.
   - `buy(uint256 orderId)`: Buyer pays priceInUSDC, receives escrowed bonds. Both buyer and seller must be KYC-verified. Requires `MockUSDC.approve(marketplaceAddress, priceInUSDC)` first.
   - `cancelOrder(uint256 orderId)`: Returns escrowed bonds to seller. Caller must be order seller.
+  - `getActiveOrders()` view returns `(Order[])`: Fetches all active orders in one call.
+  - `getOrders(uint256 offset, uint256 limit)` view returns `(Order[])`: Paginated order query.
   - `getOrder(uint256 orderId)` view returns `(Order)`
   - `orders(uint256)` view returns `(id, seller, bondAmount, priceInUSDC, isActive)`
 - **Events**:
@@ -134,21 +137,30 @@ Peer-to-peer secondary market order book for trading bonds against MockUSDC. Esc
 ---
 
 ### 2.6 CouponDistributor (`CouponDistributor.sol`)
-Manages periodic coupon distributions and bond principal redemption at maturity.
+Manages periodic coupon distributions and bond principal redemption at maturity with segregated liquidity pools.
 
 - **Roles**: `DEFAULT_ADMIN_ROLE`, `ISSUER_ROLE`
 - **Functions**:
-  - `depositFunds(uint256 amount)`: Deposits MockUSDC to fund payouts or redemptions.
+  - `depositCouponFunds(uint256 amount)`: Deposits MockUSDC into segregated `couponPool`.
+  - `depositRedemptionFunds(uint256 amount)`: Deposits MockUSDC into segregated `redemptionPool`.
+  - `depositFunds(uint256 amount)`: Backward-compatible general deposit (allocates to `couponPool`).
+  - `setPeriodsPerYear(uint256 _periods)` (ISSUER_ROLE): Configures period scaling (e.g. 1 = annual, 4 = quarterly).
   - `recordSnapshot(uint256 periodId, address[] calldata accounts, uint256[] calldata balances)` (ISSUER_ROLE): Records snapshot of balances at record date.
-  - `calculateCoupon(uint256 balance)` view returns `(uint256)`: Calculates coupon owed.
+  - `calculateCoupon(uint256 balance)` view returns `(uint256)`: Calculates coupon owed (scaled by `periodsPerYear`).
+  - `getClaimableCoupon(uint256 periodId, address account)` view returns `(uint256)`: Returns exact unclaimed coupon owed.
+  - `getActivePeriods()` view returns `(uint256[])`: Returns array of all recorded period IDs.
   - `claimCoupon(uint256 periodId)`: Claims accrued coupon for periodId. Caller must be KYC-verified.
-  - `redeem(uint256 bondAmount)`: After maturity, burns caller's bonds and pays face value in MockUSDC. Caller must be KYC-verified.
+  - `redeem(uint256 bondAmount)`: After maturity, burns caller's bonds via `REDEMPTION_ROLE` and pays face value in MockUSDC. Caller must be KYC-verified.
+  - `withdrawUnusedFunds(address token, uint256 amount, address to)` (DEFAULT_ADMIN_ROLE): Sweeps unused funds.
   - `hasClaimed(uint256 periodId, address account)` view returns `(bool)`
 - **Events**:
   - `CouponFundsDeposited(address indexed issuer, uint256 amount)`
+  - `RedemptionFundsDeposited(address indexed issuer, uint256 amount)`
   - `SnapshotRecorded(uint256 indexed periodId, uint256 accountsCount)`
   - `CouponClaimed(uint256 indexed periodId, address indexed account, uint256 amount)`
   - `BondRedeemed(address indexed account, uint256 bondAmount, uint256 payoutUSDC)`
+  - `PeriodsPerYearUpdated(uint256 newPeriodsPerYear)`
+  - `UnusedFundsWithdrawn(address indexed token, address indexed to, uint256 amount)`
 
 ---
 

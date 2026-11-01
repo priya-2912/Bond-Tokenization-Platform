@@ -10,6 +10,7 @@ import "./interfaces/IKYCRegistry.sol";
  * @title Marketplace
  * @dev KYC-compliant secondary market order book for trading BondTokens against MockUSDC.
  * Sellers lock BondTokens into escrow. Buyers purchase with MockUSDC.
+ * Hardened with batch querying, pagination, and clean lifecycle management.
  */
 contract Marketplace is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -132,5 +133,46 @@ contract Marketplace is ReentrancyGuard {
      */
     function getOrder(uint256 orderId) external view returns (Order memory) {
         return orders[orderId];
+    }
+
+    /**
+     * @notice Fetch all active orders in one call to avoid one-by-one frontend loops.
+     */
+    function getActiveOrders() external view returns (Order[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 1; i < nextOrderId; i++) {
+            if (orders[i].isActive) {
+                count++;
+            }
+        }
+        Order[] memory active = new Order[](count);
+        uint256 idx = 0;
+        for (uint256 i = 1; i < nextOrderId; i++) {
+            if (orders[i].isActive) {
+                active[idx++] = orders[i];
+            }
+        }
+        return active;
+    }
+
+    /**
+     * @notice Fetch orders with pagination.
+     * @param offset Starting order index (1-based).
+     * @param limit Max number of orders to return.
+     */
+    function getOrders(uint256 offset, uint256 limit) external view returns (Order[] memory) {
+        if (offset == 0 || offset >= nextOrderId || limit == 0) {
+            return new Order[](0);
+        }
+        uint256 end = offset + limit;
+        if (end > nextOrderId) {
+            end = nextOrderId;
+        }
+        uint256 total = end - offset;
+        Order[] memory result = new Order[](total);
+        for (uint256 i = 0; i < total; i++) {
+            result[i] = orders[offset + i];
+        }
+        return result;
     }
 }

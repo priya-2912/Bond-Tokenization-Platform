@@ -152,6 +152,41 @@ describe("CouponDistributor", function () {
     expect(await bondToken.balanceOf(investor.address)).to.equal(bondsBefore - redeemBonds);
   });
 
+  it("should support period scaling for quarterly distributions", async function () {
+    const bondAmount = ethers.parseUnits("10", 18);
+    // 4 periods per year -> 8% / 4 = 2% per period -> $200 USDC
+    await distributor.connect(issuer).setPeriodsPerYear(4);
+    const quarterlyCoupon = await distributor.calculateCoupon(bondAmount);
+    expect(quarterlyCoupon).to.equal(200000000n);
+  });
+
+  it("should return accurate claimable coupon and track active periods", async function () {
+    const bondAmount = ethers.parseUnits("10", 18);
+    await distributor.connect(issuer).recordSnapshot(1, [investor.address], [bondAmount]);
+
+    expect(await distributor.getClaimableCoupon(1, investor.address)).to.equal(800000000n);
+    expect(await distributor.getClaimableCoupon(1, nonKyc.address)).to.equal(0n);
+
+    const periods = await distributor.getActivePeriods();
+    expect(periods.length).to.equal(1);
+    expect(periods[0]).to.equal(1n);
+  });
+
+  it("should support separate deposits and unused funds withdrawal", async function () {
+    await mockUSDC.mint(issuer.address, 5000000000n);
+    await mockUSDC.connect(issuer).approve(await distributor.getAddress(), 5000000000n);
+
+    await distributor.connect(issuer).depositCouponFunds(2000000000n);
+    await distributor.connect(issuer).depositRedemptionFunds(3000000000n);
+
+    expect(await distributor.couponPool()).to.equal(2000000000n);
+    expect(await distributor.redemptionPool()).to.equal(3000000000n);
+
+    const balanceBefore = await mockUSDC.balanceOf(admin.address);
+    await distributor.connect(admin).withdrawUnusedFunds(await mockUSDC.getAddress(), 1000000000n, admin.address);
+    expect(await mockUSDC.balanceOf(admin.address)).to.equal(balanceBefore + 1000000000n);
+  });
+
   it("should revert redemption with zero amount", async function () {
     await ethers.provider.send("evm_increaseTime", [2000]);
     await ethers.provider.send("evm_mine");

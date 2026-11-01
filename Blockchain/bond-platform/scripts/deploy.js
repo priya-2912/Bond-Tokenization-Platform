@@ -117,6 +117,12 @@ async function main() {
   const marketplaceAddress = await marketplace.getAddress();
   console.log(`Marketplace deployed to: ${marketplaceAddress}`);
 
+  // Whitelist Marketplace in KYCRegistry so bond escrow & secondary purchases work
+  console.log("Whitelisting Marketplace in KYCRegistry...");
+  const wlMarketTx = await kycRegistry.addToWhitelist(marketplaceAddress);
+  await wlMarketTx.wait();
+  console.log("Marketplace whitelisted in KYCRegistry.");
+
   // 9. Deploy CouponDistributor
   console.log("Deploying CouponDistributor...");
   const CouponDistributor = await ethers.getContractFactory("CouponDistributor");
@@ -131,12 +137,18 @@ async function main() {
   const couponDistributorAddress = await couponDistributor.getAddress();
   console.log(`CouponDistributor deployed to: ${couponDistributorAddress}`);
 
-  // 10. Grant ISSUER_ROLE to CouponDistributor
-  console.log("Granting ISSUER_ROLE to CouponDistributor...");
-  const ISSUER_ROLE = await bondToken.ISSUER_ROLE();
-  const grantTx = await bondToken.grantRole(ISSUER_ROLE, couponDistributorAddress);
+  // Whitelist CouponDistributor in KYCRegistry
+  console.log("Whitelisting CouponDistributor in KYCRegistry...");
+  const wlDistTx = await kycRegistry.addToWhitelist(couponDistributorAddress);
+  await wlDistTx.wait();
+  console.log("CouponDistributor whitelisted in KYCRegistry.");
+
+  // 10. Grant REDEMPTION_ROLE to CouponDistributor
+  console.log("Granting REDEMPTION_ROLE to CouponDistributor...");
+  const REDEMPTION_ROLE = await bondToken.REDEMPTION_ROLE();
+  const grantTx = await bondToken.grantRole(REDEMPTION_ROLE, couponDistributorAddress);
   await grantTx.wait();
-  console.log("ISSUER_ROLE granted.");
+  console.log("REDEMPTION_ROLE granted to CouponDistributor.");
 
   // 11. Price Feed & ChainlinkPriceReader
   let priceFeedAddress;

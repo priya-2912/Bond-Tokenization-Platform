@@ -145,6 +145,38 @@ describe("BondToken", function () {
     expect(await bondToken.balanceOf(investor2.address)).to.equal(amount);
   });
 
+  it("should allow compliance force transfer even when token is paused", async function () {
+    const amount = ethers.parseUnits("50", 18);
+    await bondToken.connect(issuer).mint(investor1.address, amount);
+    await bondToken.connect(admin).pause();
+
+    await expect(
+      bondToken.connect(compliance).forceTransfer(investor1.address, investor2.address, amount)
+    )
+      .to.emit(bondToken, "ForceTransferExecuted")
+      .withArgs(investor1.address, investor2.address, amount, compliance.address);
+
+    expect(await bondToken.balanceOf(investor1.address)).to.equal(0n);
+    expect(await bondToken.balanceOf(investor2.address)).to.equal(amount);
+  });
+
+  it("should revert setting zero address for reserve oracle", async function () {
+    await expect(
+      bondToken.connect(admin).setReserveOracle(ethers.ZeroAddress)
+    ).to.be.revertedWith("BondToken: invalid oracle address");
+  });
+
+  it("should allow account with REDEMPTION_ROLE to burnFrom without allowance", async function () {
+    const amount = ethers.parseUnits("30", 18);
+    await bondToken.connect(issuer).mint(investor1.address, amount);
+
+    const REDEMPTION_ROLE = await bondToken.REDEMPTION_ROLE();
+    await bondToken.connect(admin).grantRole(REDEMPTION_ROLE, stranger.address);
+
+    await bondToken.connect(stranger).burnFrom(investor1.address, ethers.parseUnits("10", 18));
+    expect(await bondToken.balanceOf(investor1.address)).to.equal(ethers.parseUnits("20", 18));
+  });
+
   it("should revert force transfer if caller is not compliance", async function () {
     const amount = ethers.parseUnits("10", 18);
     await bondToken.connect(issuer).mint(investor1.address, amount);

@@ -142,6 +142,22 @@ describe("Marketplace", function () {
     expect(order.isActive).to.be.false;
   });
 
+  it("should return active orders and support pagination", async function () {
+    const bondAmount = ethers.parseUnits("1", 18);
+    await bondToken.connect(seller).approve(await marketplace.getAddress(), ethers.parseUnits("3", 18));
+    await marketplace.connect(seller).createSellOrder(bondAmount, 1000000000n);
+    await marketplace.connect(seller).createSellOrder(bondAmount, 2000000000n);
+
+    const active = await marketplace.getActiveOrders();
+    expect(active.length).to.equal(2);
+    expect(active[0].id).to.equal(1n);
+    expect(active[1].id).to.equal(2n);
+
+    const page1 = await marketplace.getOrders(1, 1);
+    expect(page1.length).to.equal(1);
+    expect(page1[0].id).to.equal(1n);
+  });
+
   it("should revert cancelling order if caller is not seller", async function () {
     const bondAmount = ethers.parseUnits("1", 18);
     await bondToken.connect(seller).approve(await marketplace.getAddress(), bondAmount);

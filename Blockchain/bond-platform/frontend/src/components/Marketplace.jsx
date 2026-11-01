@@ -19,11 +19,12 @@ export default function Marketplace({
   network,
   isKycVerified,
   refreshTrigger,
-  setRefreshTrigger
+  setRefreshTrigger,
+  setTxNotice
 }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filterMode, setFilterMode] = useState("all"); // 'all' or 'my'
+  const [filterMode, setFilterMode] = useState("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [sellAmount, setSellAmount] = useState("");
   const [sellPrice, setSellPrice] = useState("");
@@ -40,26 +41,31 @@ export default function Marketplace({
       setLoading(true);
       const runner = signer || provider;
       const marketplace = getContract("Marketplace", runner, network);
-      const nextId = await marketplace.nextOrderId();
 
-      const orderList = [];
-      for (let i = 1; i < Number(nextId); i++) {
-        try {
-          const ord = await marketplace.getOrder(i);
-          orderList.push({
-            id: Number(ord.id),
-            seller: ord.seller,
-            bondAmount: ethers.formatUnits(ord.bondAmount, 18),
-            priceInUSDC: ethers.formatUnits(ord.priceInUSDC, 6),
-            isActive: ord.isActive
-          });
-        } catch (e) {
-          console.warn("Skipping order id", i, e);
+      // Fast batch load using getOrders or getActiveOrders
+      let rawOrders = [];
+      try {
+        const nextId = await marketplace.nextOrderId();
+        const total = Number(nextId) - 1;
+        if (total > 0) {
+          rawOrders = await marketplace.getOrders(1, total);
         }
+      } catch (err) {
+        console.warn("Fallback to getActiveOrders:", err);
+        rawOrders = await marketplace.getActiveOrders();
       }
-      setOrders(orderList.reverse());
+
+      const formatted = rawOrders.map((ord) => ({
+        id: Number(ord.id),
+        seller: ord.seller,
+        bondAmount: ethers.formatUnits(ord.bondAmount, 18),
+        priceInUSDC: ethers.formatUnits(ord.priceInUSDC, 6),
+        isActive: ord.isActive,
+      }));
+
+      setOrders(formatted.reverse());
     } catch (err) {
-      console.error("Error loading marketplace orders:", err);
+      console.warn("Error loading marketplace orders:", err.message);
     } finally {
       setLoading(false);
     }
@@ -68,7 +74,7 @@ export default function Marketplace({
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     if (!signer) return alert("Please connect wallet.");
-    if (!isKycVerified) return alert("Your wallet is not KYC verified! Only verified investors can list orders.");
+    if (!isKycVerified) return alert("Your wallet is not KYC verified! Only verified investors can place sell orders.");
 
     try {
       setStatusMsg({ type: "info", text: "Step 1/2: Approving BondTokens for marketplace escrow..." });
@@ -87,6 +93,8 @@ export default function Marketplace({
       await orderTx.wait();
 
       setStatusMsg({ type: "success", text: "Sell order created and bonds placed in escrow successfully!" });
+      if (setTxNotice) setTxNotice({ type: "success", text: `Created Sell Order for ${sellAmount} CB28`, hash: orderTx.hash });
+
       setShowCreateModal(false);
       setSellAmount("");
       setSellPrice("");
@@ -102,7 +110,7 @@ export default function Marketplace({
     if (!isKycVerified) return alert("Your wallet is not KYC verified! Only verified investors can trade on this platform.");
 
     try {
-      setStatusMsg({ type: "info", text: `Step 1/2: Approving $${order.priceInUSDC} MockUSDC payment...` });
+      setStatusMsg({ type: "info", text: `Step 1/2: Approving $${Number(order.priceInUSDC).toLocaleString()} MockUSDC payment...` });
       const mockUSDC = getContract("MockUSDC", signer, network);
       const marketplace = getContract("Marketplace", signer, network);
       const marketplaceAddress = await marketplace.getAddress();
@@ -117,6 +125,8 @@ export default function Marketplace({
       await buyTx.wait();
 
       setStatusMsg({ type: "success", text: `Order #${order.id} purchased successfully! Bonds transferred to your wallet.` });
+      if (setTxNotice) setTxNotice({ type: "success", text: `Purchased Order #${order.id} for $${order.priceInUSDC}`, hash: buyTx.hash });
+
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       console.error(err);
@@ -133,6 +143,8 @@ export default function Marketplace({
       await cancelTx.wait();
 
       setStatusMsg({ type: "success", text: `Order #${orderId} cancelled and bonds returned!` });
+      if (setTxNotice) setTxNotice({ type: "success", text: `Cancelled Order #${orderId}`, hash: cancelTx.hash });
+
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       console.error(err);
