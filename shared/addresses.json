@@ -1,0 +1,30 @@
+{
+  "localhost": {
+    "BondToken": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "KYCRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "MockUSDC": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "Marketplace": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+    "CouponDistributor": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+    "ReserveOracle": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "YieldOracle": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+    "ReserveGuard": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+    "PriceFeed": "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0",
+    "ChainlinkPriceReader": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
+    "deployBlock": "16",
+    "timestamp": 1793551410
+  },
+  "sepolia": {
+    "BondToken": "0x00cB78Ea9EdD2D3Bd136aE9b0D1E576612d49F64",
+    "KYCRegistry": "0xCcD954Cbc8eAfAC4858e08F0446aBE931f094Eb4",
+    "MockUSDC": "0xfda038bc24b03a551d48eFB91E452F5f02654a2F",
+    "Marketplace": "0xbFf5460F37993516F26f458Bd69E9eB46dfF13B9",
+    "CouponDistributor": "0x0605Fc2F8CEb50278FD51afC3C5538397B3d24FC",
+    "ReserveOracle": "0x2998E86fe634856116bF8Dc8606d9342B3675875",
+    "YieldOracle": "0xEcCBe55695D8B8eEE4fd9CEf4015c476ab9Ce0AA",
+    "ReserveGuard": "0x132C3C9f78fAee4f834d942A54c75eA17f196004",
+    "PriceFeed": "0x694AA1769357215DE4FAC081bf1f309aDC325306",
+    "ChainlinkPriceReader": "0x271E8AF749aC42f367a938cC91c07D4dafF415ff",
+    "deployBlock": "12042617",
+    "timestamp": 1793555352
+  }
+}
